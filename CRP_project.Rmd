@@ -1,0 +1,539 @@
+---
+title: "Project Introduction"
+author: "Ido Shachar & Tal Kozlosvki"
+output:
+  html_document: default
+  word_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+
+```{r}
+source('R\\help_functions.r')
+```
+
+
+
+```{r}
+data <- read.csv('data\\data_20190828.csv')
+
+
+data %<>% 
+  dplyr::select(-term, -weight, 
+                -APGAR1, -APGAR5, 
+                -mat_fever, -risk_at_birth, 
+                -risk_clinical, 
+                -broad_ABX_moreThan4h, 
+                -broad_ABX2_3.9h, 
+                -GBS_ABX_moreThan2h, 
+                -ABX_lessThan2h, 
+                -risk_clinical, 
+                -rec_none, -rec_culture, 
+                -rec_ABX, 
+                -fever, 
+                -hypothermia, 
+                -resp_distress, 
+                -maternal_reason, 
+                -Other, -total_taken, 
+                -X2nd_value, 
+                -hour2, 
+                -X3rd_value, 
+                -hour3, -peak_CRP, 
+                -high_CRP, 
+                -symp_lessThan12h, 
+                -symp12_24h, 
+                -symp_moreThan24h, 
+                -LP, 
+                -ABX, 
+                -ABX_dur, 
+                -NICU, 
+                -pos_blood_culture, 
+                -other_culture, 
+                -contamin, 
+                -high_suspicion, 
+                -no_XR, 
+                -jaundice_workup, 
+                -Nati, -Sivan, 
+                -GBS_neg, 
+                -GBS_unk, 
+                -pneumonia, 
+                -PTX, 
+                -phototherapy
+          ) %>%
+  filter(ROMtime < 90, !is.na(hour1)) %>% 
+  mutate("NVD" = ifelse(VE == 1, 1, NVD), 
+         "log_CRP" = log(X1st_value + 0.1),
+         # "CRP_trans" = X1st_value ^ (1/3),
+         "log_hour" = log(hour1), 
+         "T_grp" = ifelse(NVD == 1, "regular", 
+                          ifelse(CS_elect == 1, "CS_elect", "CS_emerg"))) %>% 
+  dplyr::select(-VE, -ID, -AGA, -SGA, -NVD, -CS_elect, -CS_emerg, 
+                -PROM, -IAP_A, -IAP_I, -no_symp, -X1st_value, -hour1, -log_hour)
+
+
+str(data)
+
+```
+
+
+```{r}
+dim(data)
+table(data$T_grp)
+```
+
+
+```{r}
+
+data %>% 
+  group_by(T_grp) %>% 
+  summarise_all(.funs = c("mean" = mean, 
+                          "sd" = sd)) %>% 
+  pivot_longer(cols = c(-T_grp)) %>% 
+  mutate("stat" = ifelse(grepl("_mean", name), "mean", "sd")) %>%
+  mutate("name" = gsub("_mean|_sd", "", name)) %>%
+  pivot_wider(id_cols = name, 
+              names_from = c(T_grp, stat), 
+              values_from = value) %>% 
+  write.csv('output\\desc_stats.csv', row.names = F)
+
+```
+
+
+```{r}
+data %>% 
+  group_by(T_grp) %>% 
+  summarise("perc_Female" = sum(gender) / n(), 
+            "perc_preterm" = sum(preterm) / n(),
+            "mean_CRP" = mean(log_CRP), 
+            "sd_CRP" = sd(log_CRP), 
+            "mean_gestAge" = mean(gest_age), 
+            "sd_gestAge" = sd(gest_age),
+            "perc_MSAF" = sum(MSAF) / n(), 
+            "perc_DM" = sum(DM) / n(), 
+            "mean_ROMtime" = mean(ROMtime), 
+            "sd_ROMtime" = sd(ROMtime),
+            "perc_lGA" = sum(LGA) / n(),
+            "n" = n()) %>% 
+  knitr::kable()
+  # write.csv('dem.csv') 
+
+
+
+```
+
+
+### Plot descriptive statistics
+
+
+```{r}
+data %>% 
+  dplyr::select(T_grp, gest_age, ROMtime, high_mat_temp) %>% 
+  pivot_longer(cols = c(gest_age, ROMtime, high_mat_temp)) %>% 
+  ggplot(aes(T_grp, value, fill = T_grp)) + 
+  geom_violin(alpha = 0.5) + 
+  geom_point() + 
+  facet_grid(name ~. , scales = "free")
+
+#### Selected plot
+data %>% 
+  dplyr::select(T_grp, gest_age, ROMtime, high_mat_temp) %>% 
+  mutate("log_ROM" = log(ROMtime + 0.1)
+         # , 
+         # "log_mat_temp" = log(high_mat_temp + 0.1)
+         ) %>%
+  pivot_longer(cols = c(gest_age, log_ROM, high_mat_temp)) %>% 
+    ggplot(aes(T_grp, value, fill = T_grp)) + 
+  geom_violin(alpha = 1) + 
+  geom_point() + 
+  facet_grid(name ~. , scales = "free")
+  
+
+
+data %>% 
+  dplyr::select(T_grp, gest_age, ROMtime, high_mat_temp) %>% 
+  mutate("log_ROM" = log(ROMtime + 0.1), 
+         "log_mat_temp" = log(high_mat_temp + 0.1)) %>%
+  pivot_longer(cols = c(gest_age, log_ROM, log_mat_temp)) %>% 
+  ggplot(aes(value, fill = T_grp)) + 
+  geom_histogram(alpha = 0.3) + 
+  facet_grid(~ name, scales = "free")
+
+data %>%
+  ggplot(aes(T_grp, log_CRP)) + 
+  geom_boxplot() + 
+  geom_point()
+
+
+data %>% 
+  mutate("Group" = ifelse(T_grp == "CS_elect", "CS elective", 
+                          ifelse(T_grp == "CS_emerg", 
+                                 "CS urgent", "Regular birth"))) %>% 
+  ggplot(aes(Group, log_CRP, fill = Group)) + 
+  geom_violin(alpha = 0.3) + 
+  geom_point() + 
+  theme_bw() +
+  ggtitle('log CRP per Treatment Group') + 
+  scale_fill_discrete(name = "Group") + 
+  xlab("") + 
+  ylab("log CRP") +
+  theme(legend.position = "none")
+
+
+data %>% 
+  ggplot(aes(fill = T_grp, log_CRP)) + 
+  geom_density(alpha = 0.15)
+
+```
+
+
+
+
+```{r}
+data_elective <- data %>% 
+  filter(T_grp != 'CS_emerg') %>% 
+  mutate("T_grp" = ifelse(T_grp == "regular", 0, 1)) %>% 
+  dplyr::select(-postterm)
+
+prop_elective <- prop_score_fun(data = data_elective, TreatCol = "T_grp", OutcomeCol = "log_CRP")
+
+  
+data_elective %>% 
+  mutate("prop" = prop_elective) %>% 
+  ggplot(aes(prop, fill = as.factor(T_grp))) + geom_histogram(alpha = 0.3)
+
+# data_elective %>% 
+#   mutate("prop" = prop_elective) %>% 
+#   ggplot(aes(prop, x = as.factor(T_grp))) + 
+#   geom_boxplot()
+
+data_elective %>% 
+  mutate("prop" = prop_elective) %>% 
+  group_by(T_grp) %>% 
+  summarise(sum(prop > 0.7), n())
+
+
+match_att_elective <- matching_att_fun(data = data_elective, 
+                               TreatCol = "T_grp", 
+                               OutcomeCol = "log_CRP", 
+                              thresh = 1)
+
+plot_data <- match_att_elective$data_plot
+plot_data %>% 
+  mutate("Group" = ifelse(T_grp == 0, "Regular", "CS_elect")) %>%
+  ggplot(aes(x = Group, y = log_CRP)) + 
+  geom_boxplot() + 
+  ggtitle("Elective")
+
+
+
+T.att_elective <- Tlearner_att_fun(data = data_elective, 
+                           TreatCol = "T_grp", 
+                           OutcomeCol = "log_CRP" )
+
+S.att_elective <- Slearner_att_fun(data = data_elective, 
+                           TreatCol = "T_grp", 
+                           OutcomeCol = "log_CRP")
+match_att_elective
+print("T.att_elective")
+T.att_elective
+print("S.att_elective")
+S.att_elective
+```
+
+
+
+```{r}
+### Sensitivity analysis
+sendata <- matrix(plot_data$log_CRP, ncol = 2)
+senmw(sendata, gamma = 1, method = "t")$pval
+senmw(sendata, gamma = 1.1, method = "t")$pval
+senmw(sendata, gamma = 1.2, method = "t")$pval
+senmw(sendata, gamma = 1.3, method = "t")$pval
+
+senmwCI(sendata, gamma = 1, method = "t", one.sided = TRUE)
+senmwCI(sendata, gamma = 1.1, method = "t", one.sided = TRUE)
+senmwCI(sendata, gamma = 1.2, method = "t", one.sided = TRUE)
+senmwCI(sendata, gamma = 1.3, method = "t", one.sided = TRUE)
+```
+
+
+```{r}
+#### Descriptive statistics table 
+
+elective_desc <- data_elective %>% 
+  group_by(T_grp) %>% 
+  summarise_all(.funs = c("Mean" = mean, "SD" = sd)) %>% 
+  pivot_longer( cols = -T_grp, names_to = "Variable_full") %>% 
+  mutate("fun" = str_replace(Variable_full, "^.+_", "")) %>% 
+  rowwise() %>%
+  mutate("Variable" = gsub(paste0("_", fun), "", Variable_full)) %>% 
+  dplyr::select(-Variable_full) %>% 
+  pivot_wider(id_cols = Variable, names_from = c(T_grp, fun), values_from = value) %>% 
+  mutate("Pvalue_elect" = NA) %>%
+  as.data.frame()
+
+
+reg.ins <- which(data_elective$T_grp == 0)
+ele.ins <- which(data_elective$T_grp == 1)
+
+for(i in 1:nrow(elective_desc)) {
+  tmp_var <- elective_desc[i, "Variable"]
+  if(length(unique(data_elective[, tmp_var])) == 2) {
+        tmp.tab <- table(data_elective[, "T_grp"], 
+                     data_elective[, tmp_var])
+    if(any(tmp.tab <= 5)) {
+      elective_desc[i, "Pvalue_elect"] <- fisher.test(tmp.tab)$p.value
+    } else {
+     elective_desc[i, "Pvalue_elect"] <- chisq.test(tmp.tab)$p.value
+    }
+      
+  } else {
+    elective_desc[i, "Pvalue_elect"] <- t.test(data_elective[reg.ins, tmp_var], 
+                                         data_elective[ele.ins, tmp_var])$p.value
+  }
+}
+
+
+
+```
+
+
+
+
+
+### Elective - filtered data (prop < 0.7)
+
+```{r}
+
+match_att_electf <- matching_att_fun(data = data_elective, 
+                               TreatCol = "T_grp", 
+                               OutcomeCol = "log_CRP", 
+                              thresh = 0.7)
+
+prop_elective <- prop_score_fun(data = data_elective, TreatCol = "T_grp", OutcomeCol = "log_CRP")
+
+data_elective_filter <- data_elective %>% 
+  mutate("prop" = prop_elective) %>% 
+  filter(prop < 0.7) %>% 
+  dplyr::select(-prop)
+
+plot_data <- match_att_electf$data_plot
+plot_data %>% 
+  mutate("Group" = ifelse(T_grp == 0, "Regular", "CS_elect")) %>%
+  ggplot(aes(x = Group, y = log_CRP)) + 
+  geom_boxplot() + 
+  ggtitle("Filtered Elective")
+
+T.att_electf <- Tlearner_att_fun(data = data_elective_filter, 
+                           TreatCol = "T_grp", 
+                           OutcomeCol = "log_CRP" )
+
+S.att_electf <- Slearner_att_fun(data = data_elective_filter, 
+                           TreatCol = "T_grp", 
+                           OutcomeCol = "log_CRP")
+match_att_electf
+print("T.att_electf")
+T.att_electf
+print("S.att_electf")
+S.att_electf
+```
+
+
+
+```{r}
+### Sensitivity analysis
+sendata <- matrix(plot_data$log_CRP, ncol = 2)
+senmw(sendata, gamma = 1, method = "t")$pval
+senmw(sendata, gamma = 1.5, method = "t")$pval
+senmw(sendata, gamma = 1.6, method = "t")$pval
+senmw(sendata, gamma = 1.75, method = "t")$pval
+
+senmwCI(sendata, gamma = 1, method = "t", one.sided = TRUE)
+senmwCI(sendata, gamma = 1.5, method = "t", one.sided = TRUE)
+senmwCI(sendata, gamma = 1.6, method = "t", one.sided = TRUE)
+senmwCI(sendata, gamma = 1.75, method = "t", one.sided = TRUE)
+```
+
+#### Emergency 
+
+
+
+
+
+```{r}
+data_urgent <- data %>% 
+  filter(T_grp != 'CS_elect') %>% 
+  mutate("T_grp" = ifelse(T_grp == "regular", 0, 1)) 
+
+prop_urgent <- prop_score_fun(data = data_urgent, 
+                                TreatCol = "T_grp", 
+                                OutcomeCol = "log_CRP")
+
+  
+data_urgent %>% 
+  mutate("prop" = prop_urgent) %>% 
+  ggplot(aes(prop, fill = as.factor(T_grp))) + geom_histogram(alpha = 0.3)
+
+data_urgent %>% 
+  mutate("prop" = prop_urgent) %>% 
+  group_by(T_grp) %>% 
+  summarise(sum(prop > 0.55), n())
+
+
+match_att_urgent <- matching_att_fun(data = data_urgent, 
+                               TreatCol = "T_grp", 
+                               OutcomeCol = "log_CRP", 
+                              thresh = 0.55)
+
+plot_data <- match_att_urgent$data_plot
+plot_data %>% 
+  mutate("Group" = ifelse(T_grp == 0, "Regular", "CS_emerg")) %>%
+  ggplot(aes(x = Group, y = log_CRP)) + 
+  geom_boxplot() + 
+  ggtitle("Cesarean Emergency")
+
+
+T.att_urgent <- Tlearner_att_fun(data = data_urgent, 
+                           TreatCol = "T_grp", 
+                           OutcomeCol = "log_CRP" )
+
+S.att_urgent <- Slearner_att_fun(data = data_urgent, 
+                           TreatCol = "T_grp", 
+                           OutcomeCol = "log_CRP")
+match_att_urgent
+print("T.att_urgent")
+T.att_urgent
+print("S.att_urgent")
+S.att_urgent
+```
+
+
+```{r}
+### Sensitivity analysis
+sendata <- matrix(plot_data$log_CRP, ncol = 2)
+senmw(sendata, gamma = 1, method = "t")$pval
+# senmw(sendata, gamma = 1.5, method = "t")$pval
+# senmw(sendata, gamma = 1.6, method = "t")$pval
+# senmw(sendata, gamma = 1.75, method = "t")$pval
+
+senmwCI(sendata, gamma = 1, method = "t", one.sided = TRUE)
+# senmwCI(sendata, gamma = 1.5, method = "t", one.sided = TRUE)
+# senmwCI(sendata, gamma = 1.6, method = "t", one.sided = TRUE)
+# senmwCI(sendata, gamma = 1.75, method = "t", one.sided = TRUE)
+```
+
+
+
+```{r}
+#### Descriptive statistics table 
+
+ 
+urgent_desc <- data_urgent %>% 
+  group_by(T_grp) %>% 
+  summarise_all(.funs = c("Mean" = mean, "SD" = sd)) %>% 
+  pivot_longer( cols = -T_grp, names_to = "Variable_full") %>% 
+  mutate("fun" = str_replace(Variable_full, "^.+_", "")) %>% 
+  rowwise() %>%
+  mutate("Variable" = gsub(paste0("_", fun), "", Variable_full)) %>% 
+  dplyr::select(-Variable_full) %>% 
+  pivot_wider(id_cols = Variable, names_from = c(T_grp, fun), values_from = value) %>% 
+  mutate("Pvalue_urgent" = NA) %>%
+  as.data.frame()
+
+
+reg.ins <- which(data_urgent$T_grp == 0)
+urg.ins <- which(data_urgent$T_grp == 1)
+
+for(i in 1:nrow(urgent_desc)) {
+  tmp_var <- urgent_desc[i, "Variable"]
+  if(length(unique(data_urgent[, tmp_var])) == 2) {
+    tmp.tab <- table(data_urgent[, "T_grp"], 
+                     data_urgent[, tmp_var])
+    if(any(tmp.tab <= 5)) {
+      urgent_desc[i, "Pvalue_urgent"] <- fisher.test(tmp.tab)$p.value
+    } else {
+     urgent_desc[i, "Pvalue_urgent"] <- chisq.test(tmp.tab)$p.value
+    }
+
+  } else {
+    urgent_desc[i, "Pvalue_urgent"] <- t.test(data_urgent[reg.ins, tmp_var], 
+                                         data_urgent[urg.ins, tmp_var])$p.value
+  }
+}
+
+colnames(elective_desc)[c(4:5)] <- paste0("elective", "_", colnames(elective_desc)[c(4:5)])
+colnames(urgent_desc)[c(4:5)] <- paste0("urgent", "_", colnames(urgent_desc)[c(4:5)])
+
+full_desc <- urgent_desc %>% 
+  full_join(elective_desc)
+
+write.csv(full_desc, 'Output\\descritpive_table.csv', row.names = F)
+```
+
+
+
+
+
+#### Emergency - filtered (prop < 0.55)
+
+```{r}
+
+
+prop_urgent <- prop_score_fun(data = data_urgent, 
+                              TreatCol = "T_grp", 
+                              OutcomeCol = "log_CRP")
+
+data_urgent_filter <- data_urgent %>% 
+  mutate("prop" = prop_urgent) %>% 
+  filter(prop < 0.55) %>% 
+  dplyr::select(-prop)
+
+
+match_att_urgentf <- matching_att_fun(data = data_urgent_filter, 
+                               TreatCol = "T_grp", 
+                               OutcomeCol = "log_CRP", 
+                              thresh = 1)
+
+plot_data <- match_att_urgentf$data_plot
+plot_data %>% 
+  mutate("Group" = ifelse(T_grp == 0, "Regular", "CS_emerg")) %>%
+  ggplot(aes(x = Group, y = log_CRP)) + 
+  geom_boxplot() + 
+  ggtitle("Cesarean Emergency Filtered")
+
+
+T.att_urgentf <- Tlearner_att_fun(data = data_urgent_filter, 
+                           TreatCol = "T_grp", 
+                           OutcomeCol = "log_CRP" )
+
+S.att_urgentf <- Slearner_att_fun(data = data_urgent_filter, 
+                           TreatCol = "T_grp", 
+                           OutcomeCol = "log_CRP")
+match_att_urgentf
+print("T.att_urgentf")
+T.att_urgentf
+print("S.att_urgentf")
+S.att_urgentf
+```
+
+
+
+```{r}
+
+### Sensitivity analysis
+sendata <- matrix(plot_data$log_CRP, ncol = 2)
+senmw(sendata, gamma = 1, method = "t")$pval
+# senmw(sendata, gamma = 1.5, method = "t")$pval
+# senmw(sendata, gamma = 1.6, method = "t")$pval
+# senmw(sendata, gamma = 1.75, method = "t")$pval
+
+senmwCI(sendata, gamma = 1, method = "t", one.sided = TRUE)
+# senmwCI(sendata, gamma = 1.5, method = "t", one.sided = TRUE)
+# senmwCI(sendata, gamma = 1.6, method = "t", one.sided = TRUE)
+# senmwCI(sendata, gamma = 1.75, method = "t", one.sided = TRUE)
+```
